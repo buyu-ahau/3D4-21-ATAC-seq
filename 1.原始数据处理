@@ -1,0 +1,157 @@
+
+
+
+##sam转bam以后
+# ATAC-seq数据上游分析    处理所有BAM文件
+for bam in *.bam; do
+    sambamba sort -t 32 -o "${bam%.bam}_sorted.bam" "$bam"
+done
+
+# 批量过滤所有sorted BAM文件
+for bam in *_sorted.bam; do
+    output_name="${bam/_sorted/_filtered}"
+    echo "Processing $bam -> $output_name"
+    sambamba view -h -t 64 -f bam -F "not unmapped and not duplicate and mapping_quality >= 30" "$bam" > "$output_name"
+done
+
+# 批量过滤所有sorted BAM文件
+for bam in *_sorted.bam; do
+    output_name="${bam/_sorted/_filtered}"
+    echo "Processing $bam -> $output_name"
+    sambamba view -h -t 64 -f bam -F "not unmapped and not duplicate and mapping_quality >= 30" "$bam" > "$output_name"
+done
+
+
+# 第一步：为所有filtered BAM文件生成索引
+echo "Generating BAM indexes..."
+for bam in *_filtered.bam; do
+    echo "Indexing $bam"
+    sambamba index -t 64 "$bam"
+done
+
+# 检查索引文件是否生成
+ls -la *_filtered.bam.bai
+
+# 第二步：重新运行染色体过滤
+echo "Filtering chromosomes..."
+for bam in *_filtered.bam; do
+    output_name="${bam/_filtered/_final}"
+    echo "Processing $bam -> $output_name"
+    sambamba view -h -t 64 -f bam "$bam" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 > "$output_name"
+done
+
+
+
+
+# 同时启动12个MACS2进程
+for bam in ../../2.sorted_bam/03_final_bam/*_final.bam; do
+    sample_name=$(basename "$bam" _final.bam)
+    echo "Starting peak calling for $sample_name at $(date)"
+    
+    macs2 callpeak \
+        -t "$bam" \
+        -f BAMPE \
+        -n "$sample_name" \
+        -g 2.7e9 \
+        --nomodel \
+        --shift -75 \
+        --extsize 150 \
+        --keep-dup all \
+        -q 0.01 \
+        --outdir . &
+done
+
+# 等待所有进程完成
+wait
+echo "All peak calling jobs completed at $(date)"
+
+
+
+
+
+# 创建标准的DiffBind样本表
+cat > SampleSheet.csv << 'EOF'
+SampleID,Tissue,Factor,Condition,Treatment,Replicate,bamReads,Peaks,PeakCaller
+Control_1,tissue,ATAC,Control,Control,1,../2.sorted_bam/03_final_bam/Control_1_final.bam,../4.peak_calling/individual_peaks/Control_1_peaks.narrowPeak,narrow
+Control_2,tissue,ATAC,Control,Control,2,../2.sorted_bam/03_final_bam/Control_2_final.bam,../4.peak_calling/individual_peaks/Control_2_peaks.narrowPeak,narrow
+Control_3,tissue,ATAC,Control,Control,3,../2.sorted_bam/03_final_bam/Control_3_final.bam,../4.peak_calling/individual_peaks/Control_3_peaks.narrowPeak,narrow
+Control_4,tissue,ATAC,Control,Control,4,../2.sorted_bam/03_final_bam/Control_4_final.bam,../4.peak_calling/individual_peaks/Control_4_peaks.narrowPeak,narrow
+Control_5,tissue,ATAC,Control,Control,5,../2.sorted_bam/03_final_bam/Control_5_final.bam,../4.peak_calling/individual_peaks/Control_5_peaks.narrowPeak,narrow
+Control_6,tissue,ATAC,Control,Control,6,../2.sorted_bam/03_final_bam/Control_6_final.bam,../4.peak_calling/individual_peaks/Control_6_peaks.narrowPeak,narrow
+Experimental_1,tissue,ATAC,Experimental,Experimental,1,../2.sorted_bam/03_final_bam/Experimental_1_final.bam,../4.peak_calling/individual_peaks/Experimental_1_peaks.narrowPeak,narrow
+Experimental_2,tissue,ATAC,Experimental,Experimental,2,../2.sorted_bam/03_final_bam/Experimental_2_final.bam,../4.peak_calling/individual_peaks/Experimental_2_peaks.narrowPeak,narrow
+Experimental_3,tissue,ATAC,Experimental,Experimental,3,../2.sorted_bam/03_final_bam/Experimental_3_final.bam,../4.peak_calling/individual_peaks/Experimental_3_peaks.narrowPeak,narrow
+Experimental_4,tissue,ATAC,Experimental,Experimental,4,../2.sorted_bam/03_final_bam/Experimental_4_final.bam,../4.peak_calling/individual_peaks/Experimental_4_peaks.narrowPeak,narrow
+Experimental_5,tissue,ATAC,Experimental,Experimental,5,../2.sorted_bam/03_final_bam/Experimental_5_final.bam,../4.peak_calling/individual_peaks/Experimental_5_peaks.narrowPeak,narrow
+Experimental_6,tissue,ATAC,Experimental,Experimental,6,../2.sorted_bam/03_final_bam/Experimental_6_final.bam,../4.peak_calling/individual_peaks/Experimental_6_peaks.narrowPeak,narrow
+EOF
+
+
+
+# 2. 创建R分析脚本
+cat > diffbind_atac_analysis.R << 'EOF'
+#!/usr/bin/env Rscript
+
+library(DiffBind)
+
+print("=== 开始DiffBind ATAC-seq分析 ===")
+
+# 1. 读取样本表并创建DiffBind对象
+print("正在读取peaksets...")
+dbObj <- dba(sampleSheet="SampleSheet.csv")
+print(dbObj)
+
+# 2. 计算count矩阵
+print("正在计算每个peak的read counts...")
+dbObj <- dba.count(dbObj, bUseSummarizeOverlaps=TRUE)
+
+# 3. 样本质量评估
+print("生成样本相关性图...")
+pdf("sample_correlation.pdf", width=8, height=6)
+plot(dbObj)
+dev.off()
+
+# PCA分析
+pdf("pca_analysis.pdf", width=8, height=6)
+dba.plotPCA(dbObj, attributes=DBA_CONDITION, label=DBA_ID)
+dev.off()
+
+# 4. 建立对比组
+print("建立对比组...")
+dbObj <- dba.contrast(dbObj, categories=DBA_CONDITION, minMembers=2)
+print(dbObj)
+
+# 5. 差异分析
+print("进行差异分析...")
+dbObj <- dba.analyze(dbObj, method=DBA_ALL_METHODS)
+
+# 6. 结果摘要
+print("=== 差异分析结果摘要 ===")
+dba.show(dbObj, bContrasts=TRUE)
+
+# 7. 获取差异结果
+comp1.deseq <- dba.report(dbObj, method=DBA_DESEQ2, contrast=1, th=1)
+print(paste("DESeq2发现的差异区域:", length(comp1.deseq)))
+
+# 8. 保存结果
+out <- as.data.frame(comp1.deseq)
+write.table(out, file="Control_vs_Experimental_deseq2.txt", sep="\t", quote=FALSE, col.names=NA)
+
+# 显著结果 (FDR < 0.05)
+out_sig <- out[which(out$FDR < 0.05), ]
+print(paste("FDR<0.05的显著差异区域:", nrow(out_sig)))
+write.csv(out_sig, file="Control_vs_Experimental_significant.csv", row.names=FALSE)
+
+# 9. 生成图表
+pdf("ma_plot.pdf", width=8, height=6)
+dba.plotMA(dbObj, method=DBA_DESEQ2)
+dev.off()
+
+pdf("volcano_plot.pdf", width=8, height=6)
+dba.plotVolcano(dbObj, method=DBA_DESEQ2)
+dev.off()
+
+print("=== 分析完成！ ===")
+EOF
+
+echo "R脚本已创建"
