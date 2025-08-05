@@ -1,0 +1,41 @@
+# 回到正确目录并运行FRiP评估
+cd ~/刘莹ATAC-seq/2025-8-4重新分析/
+mkdir -p 5.quality_assessment
+cd 5.quality_assessment
+
+# 计算FRiP score
+echo "样本名,FRiP_score" > frip_scores.csv
+for sample in Control_{1..6} Experimental_{1..6}; do
+    bam="../2.sorted_bam/03_final_bam/${sample}_final.bam"
+    peaks="../4.peak_calling/individual_peaks/${sample}_peaks.narrowPeak"
+    
+    if [[ -f "$bam" && -f "$peaks" ]]; then
+        echo "Processing $sample..."
+        reads_in_peaks=$(bedtools intersect -a "$bam" -b "$peaks" -u | samtools view -c -)
+        total_reads=$(samtools view -c "$bam")
+        frip=$(echo "scale=4; $reads_in_peaks/$total_reads*100" | bc)
+        echo "${sample},${frip}" >> frip_scores.csv
+        echo "$sample: FRiP = ${frip}%"
+    fi
+done
+
+echo "FRiP评估完成！查看结果："
+cat frip_scores.csv
+
+
+
+
+# 检查peak文件格式
+echo "=== 检查peak文件格式 ==="
+head -3 ~/刘莹ATAC-seq/2025-8-4重新分析/4.peak_calling/individual_peaks/Control_1_peaks.narrowPeak
+
+echo "=== 检查BAM文件是否存在 ==="
+ls -la ~/刘莹ATAC-seq/2025-8-4重新分析/2.sorted_bam/03_final_bam/Control_1_final.bam*
+
+echo "=== 检查BAM文件索引 ==="
+ls -la ~/刘莹ATAC-seq/2025-8-4重新分析/2.sorted_bam/03_final_bam/Control_1_final.bam.bai
+
+
+cd ~/刘莹ATAC-seq/2025-8-4重新分析/
+mkdir -p 6.differential_analysis
+cd 6.differential_analysis
