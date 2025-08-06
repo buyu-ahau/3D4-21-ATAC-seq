@@ -1,0 +1,288 @@
+# 加载包
+library(ChIPseeker)
+library(GenomicFeatures)
+library(ggplot2)
+
+# 创建输出目录
+chipseeker_dir <- file.path(输出目录, "ChIPseeker标准注释")
+dir.create(chipseeker_dir, showWarnings = FALSE)
+dir.create(file.path(chipseeker_dir, "图表"), showWarnings = FALSE)
+dir.create(file.path(chipseeker_dir, "数据"), showWarnings = FALSE)
+
+cat("\n=== 步骤1: 生成TxDb对象 ===\n")
+# 使用您的GTF文件生成txdb对象
+gtf_文件 <- "Sus_scrofa.Sscrofa11.1.114.chr.gtf.gz"
+txdb_file <- file.path(chipseeker_dir, "猪基因组_ChIPseeker_TxDb.sqlite")
+
+if(!file.exists(txdb_file)) {
+  cat("正在从GTF文件生成TxDb对象...\n")
+  txdb <- makeTxDbFromGFF(gtf_文件)  # 对应您提到的代码
+  saveDb(txdb, txdb_file)
+  cat("✓ TxDb对象生成并保存完成\n")
+} else {
+  cat("读取已保存的TxDb对象...\n")
+  txdb <- loadDb(txdb_file)
+  cat("✓ TxDb对象读取成功\n")
+}
+
+cat("\n=== 步骤2: 准备peak文件 ===\n")
+# 将您的数据转换为ChIPseeker可读的格式
+
+# 函数：将数据框转换为peak文件格式
+convert_to_peak_format <- function(peak_data, output_file) {
+  if(nrow(peak_data) == 0) {
+    cat("! 没有峰值数据\n")
+    return(NULL)
+  }
+  
+  # 创建标准的peak格式文件 (类似narrowPeak格式)
+  peak_format <- data.frame(
+    seqnames = peak_data$seqnames,
+    start = peak_data$start,
+    end = peak_data$end,
+    name = paste0("Peak_", 1:nrow(peak_data)),
+    score = round(-log10(peak_data$FDR) * 100),  # 转换FDR为score
+    strand = ".",
+    fold_change = peak_data$Fold,
+    pvalue = -log10(peak_data$FDR),
+    qvalue = -log10(peak_data$FDR),
+    summit = round((peak_data$end - peak_data$start) / 2)  # 峰值中心
+  )
+  
+  # 保存为bed格式文件
+  write.table(peak_format[,1:3], output_file, 
+              sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  
+  cat("✓ Peak文件已保存:", output_file, "\n")
+  return(output_file)
+}
+
+# 转换宽松阈值数据
+if(exists("edgeR_宽松") && nrow(edgeR_宽松) > 0) {
+  宽松_peak_file <- file.path(chipseeker_dir, "数据", "EdgeR_宽松阈值_peaks.bed")
+  convert_to_peak_format(edgeR_宽松, 宽松_peak_file)
+} else {
+  宽松_peak_file <- NULL
+}
+
+# 转换严格阈值数据  
+if(exists("edgeR_严格") && nrow(edgeR_严格) > 0) {
+  严格_peak_file <- file.path(chipseeker_dir, "数据", "EdgeR_严格阈值_peaks.bed")
+  convert_to_peak_format(edgeR_严格, 严格_peak_file)
+} else {
+  严格_peak_file <- NULL
+}
+
+cat("\n=== 步骤3: ChIPseeker注释分析 ===\n")
+
+# 函数：使用ChIPseeker进行注释
+chipseeker_annotate <- function(peak_file, peak_name, txdb, output_dir) {
+  if(is.null(peak_file) || !file.exists(peak_file)) {
+    cat(sprintf("! %s的peak文件不存在\n", peak_name))
+    return(NULL)
+  }
+  
+  cat(sprintf("正在注释 %s...\n", peak_name))
+  
+  tryCatch({
+    # 步骤1: 读取peak文件 (对应您提到的readPeakFile)
+    peak_data <- readPeakFile(peak_file)
+    cat("✓ Peak文件读取成功，共", length(peak_data), "个峰值\n")
+    
+    # 步骤2: 进行peak注释 (对应您提到的annotatePeak)
+    peakAnno <- annotatePeak(
+      peak_data,
+      tssRegion = c(-2000, 2000),  # 对应您提到的TSS区域定义
+      TxDb = txdb,
+      level = "transcript",
+      assignGenomicAnnotation = TRUE
+    )
+    cat("✓ Peak注释完成\n")
+    
+    # 获取注释结果
+    anno_result <- as.data.frame(peakAnno)
+    
+    # 显示注释统计
+    cat("\n注释结果统计:\n")
+    anno_summary <- summary(peakAnno)
+    print(anno_summary)
+    
+    # 保存注释结果
+    write.csv(anno_result, 
+              file.path(output_dir, "数据", paste0(peak_name, "_ChIPseeker注释结果.csv")), 
+              row.names = FALSE)
+    
+    cat("\n=== 步骤4: 可视化展示 ===\n")
+    
+    # 1. 注释饼图 (对应您提到的plotAnnoPie)
+    cat("生成注释饼图...\n")
+    pdf(file.path(output_dir, "图表", paste0(peak_name, "_注释饼图.pdf")), 
+        width = 8, height = 6)
+    p1 <- plotAnnoPie(peakAnno)  # 对应您提到的代码
+    print(p1)
+    dev.off()
+    
+    # 2. 注释柱状图
+    cat("生成注释柱状图...\n")
+    pdf(file.path(output_dir, "图表", paste0(peak_name, "_注释柱状图.pdf")), 
+        width = 10, height = 6)
+    p2 <- plotAnnoBar(peakAnno)
+    print(p2)
+    dev.off()
+    
+    # 3. 距离TSS分布图
+    cat("生成距离TSS分布图...\n")
+    pdf(file.path(output_dir, "图表", paste0(peak_name, "_距离TSS分布.pdf")), 
+        width = 10, height = 6)
+    p3 <- plotDistToTSS(peakAnno, title = paste(peak_name, "Distance to TSS"))
+    print(p3)
+    dev.off()
+    
+    # 4. 基因组特征分布热图
+    cat("生成基因组特征热图...\n")
+    pdf(file.path(output_dir, "图表", paste0(peak_name, "_基因组特征热图.pdf")), 
+        width = 12, height = 8)
+    tryCatch({
+      p4 <- plotAvgProf(peakAnno, TxDb = txdb, upstream = 3000, downstream = 3000)
+      print(p4)
+    }, error = function(e) {
+      cat("热图生成跳过（可能需要更多内存）\n")
+    })
+    dev.off()
+    
+    cat("✓", peak_name, "可视化完成\n")
+    
+    return(list(
+      annotation = peakAnno,
+      dataframe = anno_result,
+      summary = anno_summary
+    ))
+    
+  }, error = function(e) {
+    cat("注释过程中出错:", e$message, "\n")
+    return(NULL)
+  })
+}
+
+# 执行ChIPseeker注释
+cat(paste(rep("=", 60), collapse=""), "\n")
+cat("开始ChIPseeker标准注释流程\n")
+cat(paste(rep("=", 60), collapse=""), "\n")
+
+# 注释宽松阈值
+if(!is.null(宽松_peak_file)) {
+  宽松_chipseeker <- chipseeker_annotate(宽松_peak_file, "EdgeR_宽松阈值", txdb, chipseeker_dir)
+}
+
+# 注释严格阈值
+if(!is.null(严格_peak_file)) {
+  严格_chipseeker <- chipseeker_annotate(严格_peak_file, "EdgeR_严格阈值", txdb, chipseeker_dir)
+}
+
+cat("\n=== 步骤5: 比较分析 ===\n")
+# 如果两个结果都存在，进行比较分析
+if(exists("宽松_chipseeker") && exists("严格_chipseeker") && 
+   !is.null(宽松_chipseeker) && !is.null(严格_chipseeker)) {
+  
+  cat("生成比较分析图表...\n")
+  
+  # 比较注释分布
+  pdf(file.path(chipseeker_dir, "图表", "宽松vs严格_注释比较.pdf"), 
+      width = 14, height = 8)
+  
+  # 并排显示两个饼图
+  par(mfrow = c(1, 2))
+  
+  plotAnnoPie(宽松_chipseeker$annotation, main = "EdgeR宽松阈值")
+  plotAnnoPie(严格_chipseeker$annotation, main = "EdgeR严格阈值")
+  
+  dev.off()
+  
+  # 比较距离分布
+  pdf(file.path(chipseeker_dir, "图表", "宽松vs严格_距离TSS比较.pdf"), 
+      width = 14, height = 6)
+  
+  par(mfrow = c(1, 2))
+  plotDistToTSS(宽松_chipseeker$annotation, title = "宽松阈值 Distance to TSS")
+  plotDistToTSS(严格_chipseeker$annotation, title = "严格阈值 Distance to TSS")
+  
+  dev.off()
+  
+  cat("✓ 比较分析完成\n")
+}
+
+# 保存工作环境
+save.image(file.path(chipseeker_dir, "ChIPseeker标准注释环境.RData"))
+
+# 生成分析报告
+报告内容 <- c(
+  "=== ChIPseeker标准注释分析报告 ===",
+  paste("分析时间:", Sys.time()),
+  paste("用户: buyu-ahau"),
+  "",
+  "=== 使用的ChIPseeker标准流程 ===",
+  "1. library(ChIPseeker)",
+  "2. library(GenomicFeatures)", 
+  "3. txdb <- makeTxDbFromGFF('gene.gtf')",
+  "4. peakfile <- readPeakFile('peaks.bed')",
+  "5. peakAnno <- annotatePeak(peakfile, tssRegion=c(-2000, 2000), TxDb=txdb)",
+  "6. p <- plotAnnoPie(peakAnno)",
+  "",
+  "=== 参数设置 ===",
+  "- TSS区域: -2000bp 到 +2000bp (对应tssRegion=c(-2000, 2000))",
+  "- 注释级别: transcript",
+  "- 自动分配基因组注释优先级",
+  "",
+  "=== 生成的文件 ===",
+  "数据文件:",
+  "- EdgeR_宽松阈值_peaks.bed (peak文件)",
+  "- EdgeR_严格阈值_peaks.bed (peak文件)", 
+  "- EdgeR_宽松阈值_ChIPseeker注释结果.csv",
+  "- EdgeR_严格阈值_ChIPseeker注释结果.csv",
+  "",
+  "图表文件:",
+  "- *_注释饼图.pdf (plotAnnoPie结果)",
+  "- *_注释柱状图.pdf (plotAnnoBar结果)",
+  "- *_距离TSS分布.pdf (plotDistToTSS结果)",
+  "- *_基因组特征热图.pdf (plotAvgProf结果)",
+  "- 宽松vs严格_注释比较.pdf",
+  "- 宽松vs严格_距离TSS比较.pdf"
+)
+
+writeLines(报告内容, file.path(chipseeker_dir, "ChIPseeker标准注释报告.txt"))
+
+# 最终总结
+cat("\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+cat("🎉 ChIPseeker标准注释流程完成！\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+
+if(exists("宽松_chipseeker") && !is.null(宽松_chipseeker)) {
+  cat("📊 宽松阈值注释统计:\n")
+  print(宽松_chipseeker$summary)
+  cat("\n")
+}
+
+if(exists("严格_chipseeker") && !is.null(严格_chipseeker)) {
+  cat("📊 严格阈值注释统计:\n")
+  print(严格_chipseeker$summary)
+  cat("\n")
+}
+
+cat("📁 所有结果已保存到:", chipseeker_dir, "\n")
+cat("📋 完全按照标准ChIPseeker流程:\n")
+cat("  ✓ makeTxDbFromGFF() - 生成TxDb对象\n")
+cat("  ✓ readPeakFile() - 读取peak文件\n")
+cat("  ✓ annotatePeak() - 进行注释\n")
+cat("  ✓ plotAnnoPie() - 生成饼图\n")
+cat("  ✓ 其他标准可视化图表\n")
+
+cat("\n🎯 代码对应关系:\n")
+cat("  • 您的GTF → makeTxDbFromGFF('gene.gtf')\n")
+cat("  • 您的峰值 → readPeakFile('peaks.bed')\n")
+cat("  • TSS±2kb → tssRegion=c(-2000, 2000)\n")
+cat("  • 饼图 → plotAnnoPie(peakAnno)\n")
+
+cat("\n分析完成时间:", as.character(Sys.time()), "\n")
