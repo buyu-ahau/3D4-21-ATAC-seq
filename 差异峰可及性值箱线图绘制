@@ -1,0 +1,549 @@
+# ATAC-seq染色质可及性小提琴图绘制
+# 作者: buyu-ahau
+# 日期: 2025年8月6日
+
+📋 统计结果:
+> cat("  • Ctrl组中位数:", box_stats$Median[box_stats$Group == "Ctrl"], "\n")
+  • Ctrl组中位数: 8.01 
+> cat("  • Mhp组中位数:", box_stats$Median[box_stats$Group == "Mhp"], "\n")
+  • Mhp组中位数: 8.446 
+> cat("  • 中位数差异:", 
++     round(box_stats$Median[box_stats$Group == "Mhp"] - box_stats$Median[box_stats$Group == "Ctrl"], 3), "\n")
+  • 中位数差异: 0.436 
+> cat("  • 统计显著性:", significance, "\n")
+  • 统计显著性: *** 
+
+
+  
+cat("=== ATAC-seq染色质可及性小提琴图绘制 ===\n")
+cat("分析时间:", as.character(Sys.time()), "\n")
+cat("用户: buyu-ahau\n\n")
+
+# 加载必需的包
+required_packages <- c("ggplot2", "dplyr", "tidyr", "ggbeeswarm", "viridis")
+
+for(pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    cat("正在安装包:", pkg, "\n")
+    install.packages(pkg)
+  }
+}
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggbeeswarm)
+library(viridis)
+
+# 创建输出目录
+输出目录 <- "基因注释分析结果"
+小提琴图目录 <- file.path(输出目录, "小提琴图分析")
+dir.create(小提琴图目录, showWarnings = FALSE)
+
+# 读取数据（如果还没有加载的话）
+if(!exists("edgeR_宽松_data")) {
+  edgeR_宽松_data <- read.csv("EdgeR_宽松阈值_显著区域.csv", header = TRUE)
+}
+
+cat("=== 数据准备 ===\n")
+cat("差异peaks总数:", nrow(edgeR_宽松_data), "\n")
+cat("Ctrl组浓度范围:", round(range(edgeR_宽松_data$Conc_Control), 2), "\n")
+cat("Mhp组浓度范围:", round(range(edgeR_宽松_data$Conc_Experimental), 2), "\n")
+
+# 将数据转换为长格式用于ggplot2
+cat("\n正在准备小提琴图数据...\n")
+
+violin_data <- data.frame(
+  Peak_ID = rep(paste0("Peak_", 1:nrow(edgeR_宽松_data)), 2),
+  Group = rep(c("Ctrl", "Mhp"), each = nrow(edgeR_宽松_data)),
+  Accessibility = c(edgeR_宽松_data$Conc_Control, edgeR_宽松_data$Conc_Experimental),
+  Fold_Change = rep(edgeR_宽松_data$Fold, 2),
+  FDR = rep(edgeR_宽松_data$FDR, 2),
+  stringsAsFactors = FALSE
+)
+
+# 添加up/down调控信息
+violin_data$Regulation <- ifelse(violin_data$Fold_Change > 0, "Up", "Down")
+
+cat("✓ 数据准备完成\n")
+cat("小提琴图数据点数:", nrow(violin_data), "\n")
+cat("Ctrl组数据点:", sum(violin_data$Group == "Ctrl"), "\n")
+cat("Mhp组数据点:", sum(violin_data$Group == "Mhp"), "\n")
+
+# 基本统计
+cat("\n=== 基本统计 ===\n")
+group_stats <- violin_data %>%
+  group_by(Group) %>%
+  summarise(
+    Mean = round(mean(Accessibility), 3),
+    Median = round(median(Accessibility), 3),
+    SD = round(sd(Accessibility), 3),
+    Min = round(min(Accessibility), 3),
+    Max = round(max(Accessibility), 3),
+    .groups = 'drop'
+  )
+
+print(group_stats)
+
+cat("\n=== 开始绘制小提琴图 ===\n")
+
+# 1. 基础小提琴图
+cat("1. 生成基础小提琴图...\n")
+
+p1 <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group)) +
+  geom_violin(alpha = 0.7, trim = FALSE) +
+  geom_boxplot(width = 0.1, alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.3, size = 0.5) +
+  scale_fill_manual(values = c("Ctrl" = "#3498db", "Mhp" = "#e74c3c")) +
+  labs(
+    title = "ATAC-seq染色质可及性分布比较",
+    subtitle = paste("基于", nrow(edgeR_宽松_data), "个差异peaks (FDR < 0.05)"),
+    x = "实验组别",
+    y = "染色质可及性 (Log2 标准化浓度)",
+    fill = "组别"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    legend.position = "none"
+  ) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, 
+               fill = "white", color = "black")
+
+# 保存基础小提琴图
+ggsave(file.path(小提琴图目录, "基础小提琴图.pdf"), p1, 
+       width = 8, height = 6, dpi = 300)
+
+# 2. 蜂群图版本 (更清楚地显示每个点)
+cat("2. 生成蜂群图版本...\n")
+
+p2 <- ggplot(violin_data, aes(x = Group, y = Accessibility, color = Group)) +
+  geom_violin(aes(fill = Group), alpha = 0.3, trim = FALSE) +
+  geom_quasirandom(alpha = 0.6, size = 0.8) +
+  geom_boxplot(width = 0.1, alpha = 0.8, outlier.shape = NA, 
+               color = "black", fill = "white") +
+  scale_fill_manual(values = c("Ctrl" = "#3498db", "Mhp" = "#e74c3c")) +
+  scale_color_manual(values = c("Ctrl" = "#2980b9", "Mhp" = "#c0392b")) +
+  labs(
+    title = "ATAC-seq染色质可及性分布 - 蜂群图",
+    subtitle = paste("每个点代表一个差异peak,", "共", nrow(edgeR_宽松_data), "个peaks"),
+    x = "实验组别", 
+    y = "染色质可及性 (Log2 标准化浓度)",
+    fill = "组别",
+    color = "组别"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    legend.position = "none"
+  ) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 4, 
+               fill = "yellow", color = "black")
+
+ggsave(file.path(小提琴图目录, "蜂群图版本.pdf"), p2, 
+       width = 8, height = 6, dpi = 300)
+
+# 修复第3个图表的错误并继续完成分析
+
+cat("3. 修复并重新生成按调控方向分层的小提琴图...\n")
+
+p3 <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Regulation)) +
+  geom_violin(alpha = 0.7, position = position_dodge(0.8)) +
+  geom_boxplot(width = 0.1, alpha = 0.8, outlier.shape = NA,
+               position = position_dodge(0.8)) +
+  # 修复：移除width参数，只使用position
+  geom_jitter(aes(color = Regulation), alpha = 0.4, size = 0.6,
+              position = position_jitterdodge(dodge.width = 0.8, jitter.width = 0.15)) +
+  scale_fill_manual(values = c("Up" = "#e74c3c", "Down" = "#3498db")) +
+  scale_color_manual(values = c("Up" = "#c0392b", "Down" = "#2980b9")) +
+  labs(
+    title = "ATAC-seq染色质可及性分布 - 按调控方向分层",
+    subtitle = "红色: 上调peaks, 蓝色: 下调peaks",
+    x = "实验组别",
+    y = "染色质可及性 (Log2 标准化浓度)",
+    fill = "调控方向",
+    color = "调控方向"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    legend.position = "right"
+  )
+
+ggsave(file.path(小提琴图目录, "调控方向分层小提琴图.pdf"), p3, 
+       width = 10, height = 6, dpi = 300)
+
+cat("✓ 调控方向分层小提琴图完成\n")
+
+# 4. 对比统计分析
+cat("4. 进行统计检验...\n")
+
+# t检验
+t_test_result <- t.test(Accessibility ~ Group, data = violin_data)
+wilcox_test_result <- wilcox.test(Accessibility ~ Group, data = violin_data)
+
+cat("\n=== 统计检验结果 ===\n")
+cat("t检验 p值:", format(t_test_result$p.value, scientific = TRUE), "\n")
+cat("Wilcoxon检验 p值:", format(wilcox_test_result$p.value, scientific = TRUE), "\n")
+cat("Ctrl组均值:", round(t_test_result$estimate[1], 3), "\n")
+cat("Mhp组均值:", round(t_test_result$estimate[2], 3), "\n")
+cat("均值差异:", round(t_test_result$estimate[2] - t_test_result$estimate[1], 3), "\n")
+
+# 效应量计算 (Cohen's d)
+pooled_sd <- sqrt(((sum(violin_data$Group == "Ctrl") - 1) * var(violin_data$Accessibility[violin_data$Group == "Ctrl"]) + 
+                     (sum(violin_data$Group == "Mhp") - 1) * var(violin_data$Accessibility[violin_data$Group == "Mhp"])) / 
+                    (nrow(violin_data) - 2))
+
+cohens_d <- (t_test_result$estimate[2] - t_test_result$estimate[1]) / pooled_sd
+cat("Cohen's d (效应量):", round(cohens_d, 3), "\n")
+
+# 5. 带统计标注的小提琴图
+cat("5. 生成带统计标注的小提琴图...\n")
+
+# 计算统计显著性标注
+p_value <- t_test_result$p.value
+significance <- if(p_value < 0.001) "***" else if(p_value < 0.01) "**" else if(p_value < 0.05) "*" else "ns"
+
+p4 <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group)) +
+  geom_violin(alpha = 0.7, trim = FALSE) +
+  geom_boxplot(width = 0.1, alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.2, size = 0.5) +
+  scale_fill_manual(values = c("Ctrl" = "#3498db", "Mhp" = "#e74c3c")) +
+  labs(
+    title = "ATAC-seq染色质可及性组间比较",
+    subtitle = paste("差异peaks:", nrow(edgeR_宽松_data), "个 | p =", 
+                     format(p_value, scientific = TRUE, digits = 3), "| Cohen's d =", round(cohens_d, 3)),
+    x = "实验组别",
+    y = "染色质可及性 (Log2 标准化浓度)",
+    fill = "组别"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    legend.position = "none"
+  ) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, 
+               fill = "white", color = "black") +
+  # 添加统计标注
+  annotate("text", x = 1.5, y = max(violin_data$Accessibility) * 0.95, 
+           label = significance, size = 6, fontface = "bold") +
+  annotate("segment", x = 1, xend = 2, 
+           y = max(violin_data$Accessibility) * 0.92, 
+           yend = max(violin_data$Accessibility) * 0.92)
+
+ggsave(file.path(小提琴图目录, "统计标注小提琴图.pdf"), p4, 
+       width = 8, height = 6, dpi = 300)
+
+cat("✓ 统计标注小提琴图完成\n")
+
+# 6. 分组统计详细分析
+cat("6. 进行分组统计分析...\n")
+
+# 按调控方向统计
+regulation_stats <- violin_data %>%
+  group_by(Group, Regulation) %>%
+  summarise(
+    Count = n(),
+    Mean = round(mean(Accessibility), 3),
+    Median = round(median(Accessibility), 3),
+    SD = round(sd(Accessibility), 3),
+    .groups = 'drop'
+  )
+
+cat("\n=== 按调控方向的统计 ===\n")
+print(regulation_stats)
+
+# 上调和下调峰值的数量统计
+up_down_counts <- violin_data %>%
+  filter(Group == "Ctrl") %>%  # 只需要计算一次，因为Regulation对两组都一样
+  group_by(Regulation) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+cat("\n=== 上调下调峰值数量 ===\n")
+print(up_down_counts)
+
+# 保存统计结果
+统计结果 <- data.frame(
+  检验方法 = c("t检验", "Wilcoxon检验"),
+  p值 = c(t_test_result$p.value, wilcox_test_result$p.value),
+  统计量 = c(t_test_result$statistic, wilcox_test_result$statistic),
+  显著性 = c(significance, if(wilcox_test_result$p.value < 0.05) "显著" else "不显著"),
+  Cohens_d = c(cohens_d, NA)
+)
+
+write.csv(统计结果, file.path(小提琴图目录, "统计检验结果.csv"), row.names = FALSE)
+write.csv(group_stats, file.path(小提琴图目录, "组间统计描述.csv"), row.names = FALSE)
+write.csv(regulation_stats, file.path(小提琴图目录, "调控方向统计.csv"), row.names = FALSE)
+
+# 保存工作环境
+save.image(file.path(小提琴图目录, "小提琴图分析环境.RData"))
+
+# 最终总结
+cat("\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+cat("🎻 ATAC-seq小提琴图绘制完成！\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+
+cat("📊 关键数据发现:\n")
+cat("  • 差异peaks数量:", nrow(edgeR_宽松_data), "\n")
+cat("  • Ctrl组平均可及性:", round(group_stats$Mean[group_stats$Group == "Ctrl"], 3), "\n")
+cat("  • Mhp组平均可及性:", round(group_stats$Mean[group_stats$Group == "Mhp"], 3), "\n")
+cat("  • 组间差异显著性:", significance, "\n")
+cat("  • 效应量 (Cohen's d):", round(cohens_d, 3), "\n")
+cat("  • 上调peaks:", up_down_counts$Count[up_down_counts$Regulation == "Up"], "个\n")
+cat("  • 下调peaks:", up_down_counts$Count[up_down_counts$Regulation == "Down"], "个\n")
+
+cat("\n📁 生成的图表文件:\n")
+cat("  ✓ 基础小提琴图.pdf\n")
+cat("  ✓ 蜂群图版本.pdf (每个点更清楚)\n")
+cat("  ✓ 调控方向分层小提琴图.pdf (修复版)\n")
+cat("  ✓ 统计标注小提琴图.pdf\n")
+
+cat("\n📋 数据文件:\n")
+cat("  ✓ 统计检验结果.csv\n")
+cat("  ✓ 组间统计描述.csv\n")
+cat("  ✓ 调控方向统计.csv\n")
+
+cat("\n🎯 生物学意义:\n")
+cat("  • Mhp组整体染色质可及性显著高于Ctrl组\n")
+cat("  • 平均差异:", round(group_stats$Mean[group_stats$Group == "Mhp"] - group_stats$Mean[group_stats$Group == "Ctrl"], 3), "log2单位\n")
+cat("  • 这表明Mhp感染增加了染色质的整体开放性\n")
+
+cat("\n分析完成时间:", as.character(Sys.time()), "\n")
+
+
+# 删除均值标记的干净箱线图
+# 作者: buyu-ahau
+# 日期: 2025年8月6日
+
+cat("=== 绘制无均值标记的干净箱线图 ===\n")
+
+# 创建干净版本目录
+clean_dir <- file.path(boxplot_dir, "干净版本")
+dir.create(clean_dir, showWarnings = FALSE)
+
+# Nature配色
+nature_colors <- c("Ctrl" = "#4472C4", "Mhp" = "#E15759")
+
+# 1. 干净的经典箱线图（删除均值标记）
+cat("1. 生成干净的经典箱线图...\n")
+
+clean_nature_boxplot <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group)) +
+  # 主箱线图（删除均值标记）
+  geom_boxplot(alpha = 0.8, size = 0.8, color = "black", width = 0.6,
+               outlier.shape = 21, outlier.size = 1.5, outlier.alpha = 0.6,
+               outlier.fill = "white", outlier.color = "black") +
+  
+  # ！！！删除这行就没有白色菱形了！！！
+  # stat_summary(fun = mean, geom = "point", shape = 23, size = 4, 
+  #              fill = "white", color = "black", stroke = 1.2) +
+  
+  scale_fill_manual(values = nature_colors) +
+  scale_y_continuous(
+    name = "Chromatin accessibility\n(Log₂ normalized concentration)",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0.02, 0.1))
+  ) +
+  scale_x_discrete(name = "") +
+  
+  theme_classic() +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold", 
+                              color = "black", margin = margin(b = 20)),
+    plot.subtitle = element_text(hjust = 0.5, size = 11, color = "black",
+                                 margin = margin(b = 15)),
+    axis.title.y = element_text(size = 12, color = "black", face = "bold"),
+    axis.text = element_text(size = 11, color = "black"),
+    axis.text.x = element_text(size = 12, color = "black", face = "bold"),
+    axis.line = element_line(color = "black", size = 0.8),
+    axis.ticks = element_line(color = "black", size = 0.6),
+    axis.ticks.length = unit(0.2, "cm"),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(20, 20, 20, 20)
+  ) +
+  
+  labs(
+    title = "ATAC-seq differential chromatin accessibility",
+    subtitle = paste0("n = ", nrow(edgeR_宽松_data), " peaks")
+  ) +
+  
+  # 统计标注
+  annotate("segment", x = 1, xend = 2, 
+           y = max_y + y_range * 0.05, yend = max_y + y_range * 0.05,
+           color = "black", size = 0.8) +
+  annotate("segment", x = 1, xend = 1, 
+           y = max_y + y_range * 0.05, yend = max_y + y_range * 0.02,
+           color = "black", size = 0.8) +
+  annotate("segment", x = 2, xend = 2, 
+           y = max_y + y_range * 0.05, yend = max_y + y_range * 0.02,
+           color = "black", size = 0.8) +
+  annotate("text", x = 1.5, y = max_y + y_range * 0.08, 
+           label = significance, size = 5, fontface = "bold") +
+  annotate("text", x = 1.5, y = max_y + y_range * 0.12, 
+           label = paste0("p = ", format(p_value, scientific = TRUE, digits = 2)),
+           size = 3.5, color = "black")
+
+# 保存干净版本
+ggsave(file.path(clean_dir, "干净箱线图_无均值标记.pdf"), 
+       clean_nature_boxplot, width = 4.5, height = 5.5, dpi = 600)
+
+ggsave(file.path(clean_dir, "干净箱线图_无均值标记.png"), 
+       clean_nature_boxplot, width = 4.5, height = 5.5, dpi = 300, bg = "white")
+
+# 2. 完全干净版本（连异常值都不显示）
+cat("2. 生成完全干净版本...\n")
+
+ultra_clean_boxplot <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group)) +
+  # 箱线图，不显示异常值和均值
+  geom_boxplot(alpha = 0.8, size = 0.8, color = "black", width = 0.6,
+               outlier.shape = NA) +  # 不显示异常值
+  
+  scale_fill_manual(values = nature_colors) +
+  scale_y_continuous(
+    name = "Chromatin accessibility\n(Log₂ normalized concentration)",
+    breaks = pretty_breaks(n = 6),
+    expand = expansion(mult = c(0.02, 0.08))
+  ) +
+  scale_x_discrete(name = "") +
+  
+  theme_classic() +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold", color = "black"),
+    axis.title.y = element_text(size = 12, color = "black", face = "bold"),
+    axis.text = element_text(size = 11, color = "black"),
+    axis.text.x = element_text(size = 12, color = "black", face = "bold"),
+    axis.line = element_line(color = "black", size = 0.8),
+    axis.ticks = element_line(color = "black", size = 0.6),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(20, 20, 20, 20)
+  ) +
+  
+  labs(title = "ATAC-seq chromatin accessibility") +
+  
+  # 统计标注
+  annotate("segment", x = 1, xend = 2, 
+           y = max_y + y_range * 0.02, yend = max_y + y_range * 0.02,
+           color = "black", size = 0.8) +
+  annotate("text", x = 1.5, y = max_y + y_range * 0.04, 
+           label = significance, size = 5, fontface = "bold")
+
+ggsave(file.path(clean_dir, "完全干净箱线图.pdf"), 
+       ultra_clean_boxplot, width = 4.5, height = 5, dpi = 600)
+
+# 3. 简约版本（适合期刊）
+cat("3. 生成期刊简约版本...\n")
+
+journal_boxplot <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group)) +
+  geom_boxplot(alpha = 0.7, size = 0.6, color = "black", width = 0.5,
+               outlier.shape = 16, outlier.size = 0.8, outlier.alpha = 0.5) +
+  
+  scale_fill_manual(values = nature_colors) +
+  scale_y_continuous(
+    name = "Chromatin accessibility",
+    breaks = pretty_breaks(n = 5)
+  ) +
+  scale_x_discrete(name = "") +
+  
+  theme_classic() +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.title.y = element_text(size = 11, color = "black"),
+    axis.text = element_text(size = 10, color = "black"),
+    axis.text.x = element_text(size = 11, color = "black", face = "bold"),
+    axis.line = element_line(color = "black", size = 0.7),
+    axis.ticks = element_line(color = "black", size = 0.5),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(15, 15, 15, 15)
+  ) +
+  
+  # 简单统计标注
+  annotate("text", x = 1.5, y = max_y + y_range * 0.03, 
+           label = significance, size = 4, fontface = "bold")
+
+ggsave(file.path(clean_dir, "期刊简约版箱线图.pdf"), 
+       journal_boxplot, width = 3.5, height = 4, dpi = 600)
+
+# 4. 彩色边框版本
+cat("4. 生成彩色边框版本...\n")
+
+colored_border_boxplot <- ggplot(violin_data, aes(x = Group, y = Accessibility, fill = Group, color = Group)) +
+  geom_boxplot(alpha = 0.6, size = 1.2, width = 0.6,
+               outlier.shape = 16, outlier.size = 1, outlier.alpha = 0.6) +
+  
+  scale_fill_manual(values = nature_colors) +
+  scale_color_manual(values = c("Ctrl" = "#2E5090", "Mhp" = "#B8312F")) +  # 深色边框
+  
+  scale_y_continuous(
+    name = "Chromatin accessibility\n(Log₂ normalized concentration)",
+    breaks = pretty_breaks(n = 6)
+  ) +
+  scale_x_discrete(name = "") +
+  
+  theme_classic() +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.title.y = element_text(size = 12, color = "black", face = "bold"),
+    axis.text = element_text(size = 11, color = "black"),
+    axis.text.x = element_text(size = 12, color = "black", face = "bold"),
+    axis.line = element_line(color = "black", size = 0.8),
+    axis.ticks = element_line(color = "black", size = 0.6),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(20, 20, 20, 20)
+  )
+
+ggsave(file.path(clean_dir, "彩色边框箱线图.pdf"), 
+       colored_border_boxplot, width = 4.5, height = 5, dpi = 600)
+
+cat("\n")
+cat(paste(rep("=", 60), collapse=""))
+cat("\n")
+cat("✨ 干净版箱线图制作完成！\n")
+cat(paste(rep("=", 60), collapse=""))
+cat("\n")
+
+cat("📁 干净版本保存位置:\n")
+cat("  ", clean_dir, "\n")
+
+cat("\n📊 生成的干净版本:\n")
+cat("  ✓ 干净箱线图_无均值标记.pdf (删除白色菱形)\n")
+cat("  ✓ 完全干净箱线图.pdf (连异常值都删除)\n")
+cat("  ✓ 期刊简约版箱线图.pdf (简约期刊风格)\n")
+cat("  ✓ 彩色边框箱线图.pdf (彩色边框版)\n")
+
+cat("\n🎯 删除的元素:\n")
+cat("  ❌ 白色菱形均值标记 (影响美观)\n")
+cat("  ❌ 部分版本删除异常值点\n")
+cat("  ✅ 保留箱线图核心信息\n")
+cat("  ✅ 保留统计显著性标注\n")
+
+cat("\n💡 推荐使用:\n")
+cat("  • 期刊投稿: 干净箱线图_无均值标记.pdf\n")
+cat("  • 演示报告: 完全干净箱线图.pdf\n")
+cat("  • 组合图: 期刊简约版箱线图.pdf\n")
+
+cat("\n分析完成时间:", as.character(Sys.time()), "\n")
+
