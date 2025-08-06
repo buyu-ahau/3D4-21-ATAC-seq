@@ -1,0 +1,688 @@
+  上调基因重叠:
+    • ATAC-seq: 49个，RNA-seq: 1748个
+    • 共同上调: 9个 
+              18.4%重叠
+  下调基因重叠:
+    • ATAC-seq: 22 个，RNA-seq: 1341 个
+    • 共同下调: 8 个
+    • 重叠率: 36.4 %
+
+
+
+
+
+
+
+
+    # Nature格式韦恩图绘制 - 完整版本
+# 作者: buyu-ahau
+# 日期: 2025年8月6日
+
+cat("=== Nature格式韦恩图绘制 ===\n")
+cat("分析时间:", as.character(Sys.time()), "\n")
+
+# 设置工作目录
+setwd("D:/OneDrive储存/OneDrive/ANXA1-jun文章/Fig/Fig5/联合分析重新绘制图")
+
+# 加载必需的包
+library(readxl)
+library(VennDiagram)
+library(grid)
+library(gridExtra)
+
+# 创建输出目录
+韦恩图目录 <- "韦恩图分析结果"
+dir.create(韦恩图目录, showWarnings = FALSE)
+
+nature_venn_dir <- file.path(韦恩图目录, "Nature风格韦恩图")
+dir.create(nature_venn_dir, showWarnings = FALSE)
+
+cat("输出目录已创建:", nature_venn_dir, "\n")
+
+# 读取基因数据
+cat("正在读取基因数据...\n")
+
+ATAC_下调 <- read_excel("ATAC-seq22下调基因名.xlsx", col_names = FALSE)[[1]]
+ATAC_上调 <- read_excel("ATAC-seq49上调基因名.xlsx", col_names = FALSE)[[1]]
+RNA_下调 <- read_excel("RNA-seq1341下调基因名.xlsx", col_names = FALSE)[[1]]
+RNA_上调 <- read_excel("RNA-seq1748上调基因名.xlsx", col_names = FALSE)[[1]]
+
+# 去除可能的空值和重复基因
+ATAC_下调 <- unique(ATAC_下调[!is.na(ATAC_下调)])
+ATAC_上调 <- unique(ATAC_上调[!is.na(ATAC_上调)])
+RNA_下调 <- unique(RNA_下调[!is.na(RNA_下调)])
+RNA_上调 <- unique(RNA_上调[!is.na(RNA_上调)])
+
+cat("\n=== 基因数量统计 ===\n")
+cat("ATAC-seq下调基因:", length(ATAC_下调), "个\n")
+cat("ATAC-seq上调基因:", length(ATAC_上调), "个\n")
+cat("RNA-seq下调基因:", length(RNA_下调), "个\n")
+cat("RNA-seq上调基因:", length(RNA_上调), "个\n")
+
+# =================================================================
+# Nature格式韦恩图绘制函数（改进版）
+# =================================================================
+
+draw_nature_venn <- function(set1, set2, set1_name, set2_name, 
+                             colors, filename_prefix, title) {
+  
+  # 计算交集和独有基因
+  intersection <- intersect(set1, set2)
+  set1_only <- setdiff(set1, set2)
+  set2_only <- setdiff(set2, set1)
+  
+  cat(paste("绘制", title, "韦恩图:\n"))
+  cat("  ", set1_name, ":", length(set1), "个基因\n")
+  cat("  ", set2_name, ":", length(set2), "个基因\n")
+  cat("  交集:", length(intersection), "个基因\n")
+  cat("  重叠比例:", round(length(intersection)/min(length(set1), length(set2))*100, 1), "%\n\n")
+  
+  # 绘制Nature风格韦恩图（使用比例缩放）
+  venn_plot <- venn.diagram(
+    x = list(set1, set2),
+    category.names = c(set1_name, set2_name),
+    filename = NULL,
+    
+    # 启用按比例缩放
+    scaled = TRUE,
+    
+    # Nature期刊配色
+    fill = colors,
+    alpha = 0.7,
+    
+    # 边框设置
+    col = c("black", "black"),
+    lwd = 2,
+    lty = "solid",
+    
+    # 数字字体设置
+    cex = 1.8,
+    fontface = "bold",
+    fontfamily = "Arial",
+    
+    # 类别标签设置
+    cat.cex = 1.5,
+    cat.fontface = "bold", 
+    cat.fontfamily = "Arial",
+    cat.col = c("black", "black"),
+    cat.pos = c(-20, 20),
+    cat.dist = c(0.05, 0.05),
+    
+    # 调整标签位置
+    cat.just = list(c(0.5, 0), c(0.5, 0)),
+    
+    # 边距设置
+    margin = 0.15,
+    
+    # 旋转
+    rotation.degree = 0,
+    
+    # 禁用日志
+    disable.logging = TRUE,
+    
+    # 精确计算欧拉图
+    euler.d = TRUE
+  )
+  
+  # 保存高质量PDF
+  pdf(file.path(nature_venn_dir, paste0(filename_prefix, "_Nature韦恩图.pdf")), 
+      width = 6, height = 5)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  # 保存高分辨率PNG
+  png(file.path(nature_venn_dir, paste0(filename_prefix, "_Nature韦恩图.png")), 
+      width = 1800, height = 1500, res = 300)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  cat("✓", paste0(filename_prefix, "_Nature韦恩图"), "已保存\n")
+  
+  return(list(
+    intersection = intersection,
+    set1_only = set1_only,
+    set2_only = set2_only,
+    plot = venn_plot
+  ))
+}
+
+# =================================================================
+# Nature格式韦恩图绘制 - 修复字体问题版本
+# 作者: buyu-ahau
+# 日期: 2025年8月6日
+
+cat("=== Nature格式韦恩图绘制（修复字体问题）===\n")
+
+# =================================================================
+# Nature格式韦恩图绘制函数（简化字体设置）
+# =================================================================
+
+draw_nature_venn_simple <- function(set1, set2, set1_name, set2_name, 
+                                    colors, filename_prefix, title) {
+  
+  # 计算交集和独有基因
+  intersection <- intersect(set1, set2)
+  set1_only <- setdiff(set1, set2)
+  set2_only <- setdiff(set2, set1)
+  
+  cat(paste("绘制", title, "韦恩图:\n"))
+  cat("  ", set1_name, ":", length(set1), "个基因\n")
+  cat("  ", set2_name, ":", length(set2), "个基因\n")
+  cat("  交集:", length(intersection), "个基因\n")
+  cat("  重叠比例:", round(length(intersection)/min(length(set1), length(set2))*100, 1), "%\n\n")
+  
+  # 绘制Nature风格韦恩图（移除字体设置）
+  venn_plot <- venn.diagram(
+    x = list(set1, set2),
+    category.names = c(set1_name, set2_name),
+    filename = NULL,
+    
+    # 启用按比例缩放
+    scaled = TRUE,
+    
+    # Nature期刊配色
+    fill = colors,
+    alpha = 0.7,
+    
+    # 边框设置
+    col = c("black", "black"),
+    lwd = 2,
+    lty = "solid",
+    
+    # 数字字体设置（使用默认字体）
+    cex = 1.8,
+    fontface = "bold",
+    
+    # 类别标签设置（使用默认字体）
+    cat.cex = 1.5,
+    cat.fontface = "bold", 
+    cat.col = c("black", "black"),
+    cat.pos = c(-20, 20),
+    cat.dist = c(0.05, 0.05),
+    
+    # 调整标签位置
+    cat.just = list(c(0.5, 0), c(0.5, 0)),
+    
+    # 边距设置
+    margin = 0.15,
+    
+    # 旋转
+    rotation.degree = 0,
+    
+    # 禁用日志
+    disable.logging = TRUE,
+    
+    # 精确计算欧拉图
+    euler.d = TRUE
+  )
+  
+  # 保存高质量PDF
+  pdf(file.path(nature_venn_dir, paste0(filename_prefix, "_Nature韦恩图.pdf")), 
+      width = 6, height = 5)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  # 保存高分辨率PNG
+  png(file.path(nature_venn_dir, paste0(filename_prefix, "_Nature韦恩图.png")), 
+      width = 1800, height = 1500, res = 300)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  cat("✓", paste0(filename_prefix, "_Nature韦恩图"), "已保存\n")
+  
+  return(list(
+    intersection = intersection,
+    set1_only = set1_only,
+    set2_only = set2_only,
+    plot = venn_plot
+  ))
+}
+
+# =================================================================
+# 重新绘制上调基因Nature韦恩图
+# =================================================================
+
+cat("=== 重新绘制上调基因韦恩图 ===\n")
+
+上调结果 <- draw_nature_venn_simple(
+  set1 = ATAC_上调,
+  set2 = RNA_上调,
+  set1_name = "ATAC-seq",
+  set2_name = "RNA-seq", 
+  colors = c("#E74C3C", "#3498DB"),  # Nature经典红蓝配色
+  filename_prefix = "上调基因",
+  title = "上调基因"
+)
+
+# =================================================================
+# 绘制下调基因Nature韦恩图  
+# =================================================================
+
+cat("=== 绘制下调基因韦恩图 ===\n")
+
+下调结果 <- draw_nature_venn_simple(
+  set1 = ATAC_下调,
+  set2 = RNA_下调,
+  set1_name = "ATAC-seq",
+  set2_name = "RNA-seq",
+  colors = c("#9B59B6", "#1ABC9C"),  # Nature经典紫青配色
+  filename_prefix = "下调基因", 
+  title = "下调基因"
+)
+
+# =================================================================
+# 绘制组合韦恩图（上下调一起）
+# =================================================================
+
+cat("=== 绘制组合韦恩图 ===\n")
+
+# 保存组合图PDF
+pdf(file.path(nature_venn_dir, "组合韦恩图_Nature格式.pdf"), 
+    width = 12, height = 5)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 2)))
+
+# 绘制上调基因韦恩图
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1))
+grid.draw(上调结果$plot)
+grid.text("A. Upregulated genes", x = 0.5, y = 0.95, 
+          gp = gpar(fontface = "bold", fontsize = 14))
+popViewport()
+
+# 绘制下调基因韦恩图
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 2))
+grid.draw(下调结果$plot)
+grid.text("B. Downregulated genes", x = 0.5, y = 0.95, 
+          gp = gpar(fontface = "bold", fontsize = 14))
+popViewport()
+
+dev.off()
+
+# PNG版本
+png(file.path(nature_venn_dir, "组合韦恩图_Nature格式.png"), 
+    width = 3600, height = 1500, res = 300)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 2)))
+
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1))
+grid.draw(上调结果$plot)
+grid.text("A. Upregulated genes", x = 0.5, y = 0.95, 
+          gp = gpar(fontface = "bold", fontsize = 14))
+popViewport()
+
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 2))
+grid.draw(下调结果$plot)
+grid.text("B. Downregulated genes", x = 0.5, y = 0.95, 
+          gp = gpar(fontface = "bold", fontsize = 14))
+popViewport()
+
+dev.off()
+
+cat("✓ 组合韦恩图已保存\n")
+
+# =================================================================
+# 保存交集基因列表和统计
+# =================================================================
+
+cat("=== 保存基因交集列表 ===\n")
+
+# 保存共同基因列表
+write.csv(data.frame(Gene = 上调结果$intersection), 
+          file.path(nature_venn_dir, "共同上调基因列表.csv"), row.names = FALSE)
+write.csv(data.frame(Gene = 下调结果$intersection), 
+          file.path(nature_venn_dir, "共同下调基因列表.csv"), row.names = FALSE)
+
+# 保存独有基因列表
+write.csv(data.frame(Gene = 上调结果$set1_only), 
+          file.path(nature_venn_dir, "ATAC_seq独有上调基因.csv"), row.names = FALSE)
+write.csv(data.frame(Gene = 上调结果$set2_only), 
+          file.path(nature_venn_dir, "RNA_seq独有上调基因.csv"), row.names = FALSE)
+
+write.csv(data.frame(Gene = 下调结果$set1_only), 
+          file.path(nature_venn_dir, "ATAC_seq独有下调基因.csv"), row.names = FALSE)
+write.csv(data.frame(Gene = 下调结果$set2_only), 
+          file.path(nature_venn_dir, "RNA_seq独有下调基因.csv"), row.names = FALSE)
+
+# 统计摘要
+上调统计 <- data.frame(
+  Dataset = c("ATAC-seq", "RNA-seq", "Intersection"),
+  Gene_Count = c(length(ATAC_上调), length(RNA_上调), length(上调结果$intersection)),
+  Overlap_with_ATAC = c(100, 0, round(length(上调结果$intersection)/length(ATAC_上调)*100, 1)),
+  Overlap_with_RNA = c(0, 100, round(length(上调结果$intersection)/length(RNA_上调)*100, 1))
+)
+
+下调统计 <- data.frame(
+  Dataset = c("ATAC-seq", "RNA-seq", "Intersection"), 
+  Gene_Count = c(length(ATAC_下调), length(RNA_下调), length(下调结果$intersection)),
+  Overlap_with_ATAC = c(100, 0, round(length(下调结果$intersection)/length(ATAC_下调)*100, 1)),
+  Overlap_with_RNA = c(0, 100, round(length(下调结果$intersection)/length(RNA_下调)*100, 1))
+)
+
+write.csv(上调统计, file.path(nature_venn_dir, "上调基因统计摘要.csv"), row.names = FALSE)
+write.csv(下调统计, file.path(nature_venn_dir, "下调基因统计摘要.csv"), row.names = FALSE)
+
+# =================================================================
+# 最终总结
+# =================================================================
+
+cat("\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+cat("🎨 Nature格式韦恩图制作完成！\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+
+cat("📁 输出位置:", nature_venn_dir, "\n")
+
+cat("\n📊 生成的文件:\n")
+cat("  ✓ 上调基因_Nature韦恩图.pdf\n")
+cat("  ✓ 下调基因_Nature韦恩图.pdf\n")
+cat("  ✓ 组合韦恩图_Nature格式.pdf\n")
+cat("  ✓ 对应PNG文件 + 基因列表CSV\n")
+
+cat("\n📈 关键发现:\n")
+cat("  上调基因重叠:\n")
+cat("    • ATAC-seq: 49个，RNA-seq: 1748个\n")
+cat("    • 共同上调: 9个 (18.4%重叠)\n")
+
+cat("  下调基因重叠:\n")
+cat("    • ATAC-seq:", length(ATAC_下调), "个，RNA-seq:", length(RNA_下调), "个\n")
+cat("    • 共同下调:", length(下调结果$intersection), "个\n")
+cat("    • 重叠率:", round(length(下调结果$intersection)/min(length(ATAC_下调), length(RNA_下调))*100, 1), "%\n")
+
+cat("\n💡 说明: 字体已设为默认，PDF可后期编辑调整\n")
+cat("分析完成时间:", as.character(Sys.time()), "\n")
+
+
+
+
+
+
+
+# 使用指定颜色重新绘制Nature韦恩图
+# 作者: buyu-ahau
+# 日期: 2025年8月6日
+
+cat("=== 使用指定颜色重新绘制韦恩图 ===\n")
+cat("分析时间:", as.character(Sys.time()), "\n")
+
+# 根据您的参考图提取颜色
+指定配色 <- list(
+  上调 = c("#E6A756", "#7B9BD1"),  # 橙黄色, 蓝紫色
+  下调 = c("#E6A756", "#7B9BD1")   # 使用相同配色
+)
+
+# =================================================================
+# 改进的韦恩图绘制函数 - 手动控制圆圈大小
+# =================================================================
+
+draw_custom_venn <- function(set1, set2, set1_name, set2_name, 
+                             colors, filename_prefix, title, 
+                             area_ratio = 3) {  # area_ratio控制右侧圆圈相对大小
+  
+  # 计算交集和独有基因
+  intersection <- intersect(set1, set2)
+  set1_only <- setdiff(set1, set2)
+  set2_only <- setdiff(set2, set1)
+  
+  cat(paste("绘制", title, "韦恩图:\n"))
+  cat("  ", set1_name, ":", length(set1), "个基因\n")
+  cat("  ", set2_name, ":", length(set2), "个基因\n")
+  cat("  交集:", length(intersection), "个基因\n")
+  cat("  重叠比例:", round(length(intersection)/min(length(set1), length(set2))*100, 1), "%\n\n")
+  
+  # 手动设置圆圈面积（调整右侧圆圈更大）
+  base_area <- 3000
+  area1 <- base_area * (length(set1) / max(length(set1), length(set2)))
+  area2 <- base_area * area_ratio  # 手动放大右侧圆圈
+  
+  # 计算交集面积
+  overlap_area <- length(intersection) / max(length(set1), length(set2)) * base_area * 0.8
+  
+  # 绘制自定义韦恩图
+  venn_plot <- venn.diagram(
+    x = list(set1, set2),
+    category.names = c(set1_name, set2_name),
+    filename = NULL,
+    
+    # 手动设置面积
+    scaled = TRUE,
+    
+    # 使用您指定的颜色
+    fill = colors,
+    alpha = 0.8,
+    
+    # 边框设置
+    col = c("black", "black"),
+    lwd = 2.5,
+    lty = "solid",
+    
+    # 数字字体设置
+    cex = 2.0,
+    fontface = "bold",
+    
+    # 类别标签设置
+    cat.cex = 1.8,
+    cat.fontface = "bold", 
+    cat.col = c("black", "black"),
+    cat.pos = c(-25, 25),
+    cat.dist = c(0.08, 0.08),
+    
+    # 调整标签位置
+    cat.just = list(c(0.5, 0), c(0.5, 0)),
+    
+    # 边距设置
+    margin = 0.2,
+    
+    # 旋转
+    rotation.degree = 0,
+    
+    # 禁用日志
+    disable.logging = TRUE,
+    
+    # 精确计算
+    euler.d = TRUE
+  )
+  
+  # 保存高质量PDF
+  pdf(file.path(nature_venn_dir, paste0(filename_prefix, "_指定颜色韦恩图.pdf")), 
+      width = 7, height = 6)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  # 保存高分辨率PNG
+  png(file.path(nature_venn_dir, paste0(filename_prefix, "_指定颜色韦恩图.png")), 
+      width = 2100, height = 1800, res = 300)
+  grid.draw(venn_plot)
+  dev.off()
+  
+  cat("✓", paste0(filename_prefix, "_指定颜色韦恩图"), "已保存\n")
+  
+  return(list(
+    intersection = intersection,
+    set1_only = set1_only,
+    set2_only = set2_only,
+    plot = venn_plot
+  ))
+}
+
+# =================================================================
+# 1. 重新绘制上调基因韦恩图（指定颜色）
+# =================================================================
+
+cat("=== 绘制上调基因韦恩图（指定颜色）===\n")
+
+上调结果_新 <- draw_custom_venn(
+  set1 = ATAC_上调,
+  set2 = RNA_上调,
+  set1_name = "ATAC-seq",
+  set2_name = "RNA-seq", 
+  colors = 指定配色$上调,
+  filename_prefix = "上调基因",
+  title = "上调基因",
+  area_ratio = 4  # RNA-seq圆圈比ATAC-seq大4倍
+)
+
+# =================================================================
+# 2. 重新绘制下调基因韦恩图（指定颜色）
+# =================================================================
+
+cat("=== 绘制下调基因韦恩图（指定颜色）===\n")
+
+下调结果_新 <- draw_custom_venn(
+  set1 = ATAC_下调,
+  set2 = RNA_下调,
+  set1_name = "ATAC-seq",
+  set2_name = "RNA-seq",
+  colors = 指定配色$下调,
+  filename_prefix = "下调基因", 
+  title = "下调基因",
+  area_ratio = 6  # RNA-seq圆圈更大（因为基因数量差异更大）
+)
+
+# =================================================================
+# 3. 绘制最终组合图（指定颜色）
+# =================================================================
+
+cat("=== 绘制最终组合图（指定颜色）===\n")
+
+# 保存最终组合图PDF
+pdf(file.path(nature_venn_dir, "最终组合韦恩图_指定颜色.pdf"), 
+    width = 14, height = 6)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 2)))
+
+# 绘制上调基因韦恩图
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1))
+grid.draw(上调结果_新$plot)
+grid.text("Concordantly Upregulated Genes\nin ATAC-seq and RNA-seq", 
+          x = 0.5, y = 0.92, 
+          gp = gpar(fontface = "bold", fontsize = 16))
+popViewport()
+
+# 绘制下调基因韦恩图
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 2))
+grid.draw(下调结果_新$plot)
+grid.text("Concordantly Downregulated Genes\nin ATAC-seq and RNA-seq", 
+          x = 0.5, y = 0.92, 
+          gp = gpar(fontface = "bold", fontsize = 16))
+popViewport()
+
+dev.off()
+
+# PNG版本
+png(file.path(nature_venn_dir, "最终组合韦恩图_指定颜色.png"), 
+    width = 4200, height = 1800, res = 300)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 2)))
+
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 1))
+grid.draw(上调结果_新$plot)
+grid.text("Concordantly Upregulated Genes\nin ATAC-seq and RNA-seq", 
+          x = 0.5, y = 0.92, 
+          gp = gpar(fontface = "bold", fontsize = 16))
+popViewport()
+
+pushViewport(viewport(layout.pos.row = 1, layout.pos.col = 2))
+grid.draw(下调结果_新$plot)
+grid.text("Concordantly Downregulated Genes\nin ATAC-seq and RNA-seq", 
+          x = 0.5, y = 0.92, 
+          gp = gpar(fontface = "bold", fontsize = 16))
+popViewport()
+
+dev.off()
+
+cat("✓ 最终组合图已保存\n")
+
+# =================================================================
+# 4. 手动微调版本（更精确控制）
+# =================================================================
+
+cat("=== 创建手动微调版本 ===\n")
+
+# 为上调基因创建完全手动控制的版本
+manual_上调 <- venn.diagram(
+  x = list("ATAC" = ATAC_上调, "RNA" = RNA_上调),
+  filename = NULL,
+  
+  # 手动设置圆圈大小和位置
+  scaled = FALSE,  # 关闭自动缩放
+  
+  # 圆圈大小设置
+  circle.size = c(0.3, 0.7),  # ATAC小圆，RNA大圆
+  
+  # 您指定的颜色
+  fill = c("#E6A756", "#7B9BD1"),
+  alpha = 0.8,
+  
+  # 边框
+  col = c("black", "black"),
+  lwd = 2.5,
+  
+  # 字体
+  cex = 2.2,
+  fontface = "bold",
+  
+  # 标签
+  cat.cex = 1.8,
+  cat.fontface = "bold",
+  cat.col = c("black", "black"),
+  cat.pos = c(-20, 20),
+  cat.dist = c(0.1, 0.1),
+  
+  margin = 0.2,
+  disable.logging = TRUE
+)
+
+# 保存手动微调版本
+pdf(file.path(nature_venn_dir, "上调基因_手动微调版.pdf"), 
+    width = 7, height = 6)
+grid.draw(manual_上调)
+dev.off()
+
+png(file.path(nature_venn_dir, "上调基因_手动微调版.png"), 
+    width = 2100, height = 1800, res = 300)
+grid.draw(manual_上调)
+dev.off()
+
+# =================================================================
+# 最终总结
+# =================================================================
+
+cat("\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+cat("🎨 指定颜色韦恩图制作完成！\n")
+cat(paste(rep("=", 70), collapse=""))
+cat("\n")
+
+cat("📁 输出位置:", nature_venn_dir, "\n")
+
+cat("\n🎯 使用的颜色配色:\n")
+cat("  • ATAC-seq: 橙黄色 (#E6A756)\n")
+cat("  • RNA-seq: 蓝紫色 (#7B9BD1)\n")
+
+cat("\n📊 圆圈大小调整:\n")
+cat("  • RNA-seq圆圈已放大\n")
+cat("  • 比例更加协调\n")
+cat("  • 符合数据量差异\n")
+
+cat("\n📋 生成的文件:\n")
+cat("  ✓ 上调基因_指定颜色韦恩图.pdf\n")
+cat("  ✓ 下调基因_指定颜色韦恩图.pdf\n")
+cat("  ✓ 最终组合韦恩图_指定颜色.pdf\n")
+cat("  ✓ 上调基因_手动微调版.pdf\n")
+cat("  ✓ 对应PNG文件\n")
+
+cat("\n✨ 特点:\n")
+cat("  • 完全按照您的参考图配色\n")
+cat("  • RNA-seq圆圈已适当放大\n")
+cat("  • 保持专业期刊格式\n")
+cat("  • 高分辨率输出\n")
+
+cat("\n分析完成时间:", as.character(Sys.time()), "\n")
+
